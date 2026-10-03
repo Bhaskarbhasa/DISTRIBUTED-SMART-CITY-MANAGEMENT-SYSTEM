@@ -1,0 +1,597 @@
+
+
+
+networks:
+  smartcity-network:
+    name: smartcity-network
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  zookeeper_data:
+  kafka_data:
+  influxdb_data:
+  minio_data:
+  prometheus_data:
+  grafana_data:
+  mosquitto_data:
+  mosquitto_log:
+
+services:
+  # ============================================================
+  # INFRASTRUCTURE SERVICES
+  # ============================================================
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+    networks:
+      - smartcity-network
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo ruok | nc localhost 2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_LOG_RETENTION_HOURS: 24
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    networks:
+      - smartcity-network
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    container_name: mosquitto
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+    networks:
+      - smartcity-network
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:15
+    container_name: postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-smartcity}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./databases/postgres/migrations/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql
+    networks:
+      - smartcity-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-smartcity}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - smartcity-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  influxdb:
+    image: influxdb:2.7
+    container_name: influxdb
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: ${INFLUXDB_USER:-admin}
+      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUXDB_PASSWORD:-admin12345}
+      DOCKER_INFLUXDB_INIT_ORG: ${INFLUXDB_ORG:-smartcity}
+      DOCKER_INFLUXDB_INIT_BUCKET: ${INFLUXDB_BUCKET:-metrics}
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUXDB_TOKEN:-my-super-secret-auth-token}
+    ports:
+      - "8086:8086"
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+    networks:
+      - smartcity-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8086/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  minio:
+    image: elestio/minio:latest
+    container_name: minio
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-admin123}
+    command: server /data --console-address ":9002"
+    ports:
+      - "9000:9000"
+      - "9002:9002"
+    volumes:
+      - minio_data:/data
+    networks:
+      - smartcity-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================================
+  # MONITORING SERVICES
+  # ============================================================
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./monitoring/prometheus/alerts.yml:/etc/prometheus/alerts.yml
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - smartcity-network
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3002:3000"
+    networks:
+      - smartcity-network
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  # ============================================================
+  # CORE MICROSERVICES
+  # ============================================================
+
+  auth-service:
+    build:
+      context: ./services/auth-service
+      dockerfile: Dockerfile
+    container_name: auth-service
+    ports:
+      - "8001:8001"
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/smartcity
+      REDIS_URL: redis://redis:6379/0
+      KAFKA_BROKERS: kafka:9092
+      SERVICE_PORT: "8001"
+    networks:
+      - smartcity-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8001/health')\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  ingestion-service:
+    build:
+      context: ./services/ingestion-service
+      dockerfile: Dockerfile
+    container_name: ingestion-service
+    ports:
+      - "8007:8007"
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/smartcity
+      KAFKA_BROKERS: kafka:9092
+      SERVICE_PORT: "8007"
+    networks:
+      - smartcity-network
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  traffic-service:
+    build:
+      context: ./services/traffic-service
+      dockerfile: Dockerfile
+    container_name: traffic-service
+    ports:
+      - "8002:8002"
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/smartcity
+      REDIS_URL: redis://redis:6379/0
+      KAFKA_BROKERS: kafka:9092
+      FOG_COORDINATOR_URL: http://fog-node-1:8020
+      FOG_NODE_URLS: http://fog-node-1:8020,http://fog-node-2:8022,http://fog-node-3:8024
+      SERVICE_PORT: "8002"
+    networks:
+      - smartcity-network
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  emergency-service:
+    build:
+      context: ./services/emergency-service
+      dockerfile: Dockerfile
+    container_name: emergency-service
+    ports:
+      - "8003:8003"
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/smartcity
+      REDIS_URL: redis://redis:6379/0
+      KAFKA_BROKERS: kafka:9092
+      SERVICE_PORT: "8003"
+    networks:
+      - smartcity-network
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  environment-service:
+    build:
+      context: ./services/environment-service
+      dockerfile: Dockerfile
+    container_name: environment-service
+    ports:
+      - "8004:8004"
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/smartcity
+      REDIS_URL: redis://redis:6379/0
+      KAFKA_BROKERS: kafka:9092
+      SERVICE_PORT: "8004"
+    networks:
+      - smartcity-network
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  analytics-service:
+    build:
+      context: ./services/analytics-service
+      dockerfile: Dockerfile
+    container_name: analytics-service
+    ports:
+      - "8005:8005"
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/smartcity
+      REDIS_URL: redis://redis:6379/0
+      KAFKA_BROKERS: kafka:9092
+      MINIO_ENDPOINT: minio:9000
+      SERVICE_PORT: "8005"
+    networks:
+      - smartcity-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    restart: unless-stopped
+
+  notification-service:
+    build:
+      context: ./services/notification-service
+      dockerfile: Dockerfile
+    container_name: notification-service
+    ports:
+      - "8006:8006"
+    env_file: .env
+    environment:
+      KAFKA_BROKERS: kafka:9092
+      REDIS_URL: redis://redis:6379/0
+      SERVICE_PORT: "8006"
+    networks:
+      - smartcity-network
+    depends_on:
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  api-gateway:
+    build:
+      context: ./services/api-gateway
+      dockerfile: Dockerfile
+    container_name: api-gateway
+    ports:
+      - "8000:8000"
+    env_file: .env
+    environment:
+      AUTH_SERVICE_URL: http://auth-service:8001
+      TRAFFIC_SERVICE_URL: http://traffic-service:8002
+      EMERGENCY_SERVICE_URL: http://emergency-service:8003
+      ENVIRONMENT_SERVICE_URL: http://environment-service:8004
+      ANALYTICS_SERVICE_URL: http://analytics-service:8005
+      NOTIFICATION_SERVICE_URL: http://notification-service:8006
+      INGESTION_SERVICE_URL: http://ingestion-service:8007
+      SERVICE_PORT: "8000"
+    networks:
+      - smartcity-network
+    depends_on:
+      auth-service:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ============================================================
+  # FOG NODES (Raft Consensus Cluster)
+  # ============================================================
+
+  fog-node-1:
+    build:
+      context: ./services/fog-node
+      dockerfile: Dockerfile
+    container_name: fog-node-1
+    ports:
+      - "8020:8020"
+    env_file: .env
+    environment:
+      FOG_NODE_ID: "fog-1"
+      FOG_PORT: "8020"
+      FOG_PEERS: "fog-node-2:8022,fog-node-3:8024"
+      KAFKA_BROKERS: kafka:9092
+      REDIS_URL: redis://redis:6379/0
+      ELECTION_TIMEOUT_MIN_MS: "150"
+      ELECTION_TIMEOUT_MAX_MS: "300"
+      HEARTBEAT_INTERVAL_MS: "50"
+    networks:
+      - smartcity-network
+    depends_on:
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8020/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  fog-node-2:
+    build:
+      context: ./services/fog-node
+      dockerfile: Dockerfile
+    container_name: fog-node-2
+    ports:
+      - "8022:8022"
+    env_file: .env
+    environment:
+      FOG_NODE_ID: "fog-2"
+      FOG_PORT: "8022"
+      FOG_PEERS: "fog-node-1:8020,fog-node-3:8024"
+      KAFKA_BROKERS: kafka:9092
+      REDIS_URL: redis://redis:6379/0
+      ELECTION_TIMEOUT_MIN_MS: "150"
+      ELECTION_TIMEOUT_MAX_MS: "300"
+      HEARTBEAT_INTERVAL_MS: "50"
+    networks:
+      - smartcity-network
+    depends_on:
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8022/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  fog-node-3:
+    build:
+      context: ./services/fog-node
+      dockerfile: Dockerfile
+    container_name: fog-node-3
+    ports:
+      - "8024:8024"
+    env_file: .env
+    environment:
+      FOG_NODE_ID: "fog-3"
+      FOG_PORT: "8024"
+      FOG_PEERS: "fog-node-1:8020,fog-node-2:8022"
+      KAFKA_BROKERS: kafka:9092
+      REDIS_URL: redis://redis:6379/0
+      ELECTION_TIMEOUT_MIN_MS: "150"
+      ELECTION_TIMEOUT_MAX_MS: "300"
+      HEARTBEAT_INTERVAL_MS: "50"
+    networks:
+      - smartcity-network
+    depends_on:
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8024/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ============================================================
+  # EDGE LAYER (Simulators + Gateway)
+  # ============================================================
+
+  edge-gateway:
+    build:
+      context: ./edge/edge-gateway
+      dockerfile: Dockerfile
+    container_name: edge-gateway
+    ports:
+      - "8008:8008"
+    env_file: .env
+    environment:
+      MQTT_BROKER_HOST: mosquitto
+      MQTT_BROKER_PORT: "1883"
+      KAFKA_BROKERS: kafka:9092
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/smartcity
+      SERVICE_PORT: "8008"
+    networks:
+      - smartcity-network
+    depends_on:
+      mosquitto:
+        condition: service_started
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
+
+  traffic-simulator:
+    build:
+      context: ./edge/traffic-simulator
+      dockerfile: Dockerfile
+    container_name: traffic-simulator
+    ports:
+      - "8010:8010"
+    env_file: .env
+    environment:
+      MQTT_BROKER_HOST: mosquitto
+      MQTT_BROKER_PORT: "1883"
+      SIMULATOR_RATE: "2"
+    networks:
+      - smartcity-network
+    depends_on:
+      - edge-gateway
+    restart: unless-stopped
+
+  environment-simulator:
+    build:
+      context: ./edge/environment-simulator
+      dockerfile: Dockerfile
+    container_name: environment-simulator
+    ports:
+      - "8012:8012"
+    env_file: .env
+    environment:
+      MQTT_BROKER_HOST: mosquitto
+      MQTT_BROKER_PORT: "1883"
+      SIMULATOR_RATE: "1"
+    networks:
+      - smartcity-network
+    depends_on:
+      - edge-gateway
+    restart: unless-stopped
+
+  emergency-simulator:
+    build:
+      context: ./edge/emergency-simulator
+      dockerfile: Dockerfile
+    container_name: emergency-simulator
+    ports:
+      - "8011:8011"
+    env_file: .env
+    environment:
+      MQTT_BROKER_HOST: mosquitto
+      MQTT_BROKER_PORT: "1883"
+      SIMULATOR_RATE: "0.1"
+    networks:
+      - smartcity-network
+    depends_on:
+      - edge-gateway
+    restart: unless-stopped
+
+  # ============================================================
+  # FRONTEND
+  # ============================================================
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: frontend
+    ports:
+      - "3001:80"
+    environment:
+      VITE_API_URL: http://localhost:8000
+      VITE_WS_URL: ws://localhost:8000
+    networks:
+      - smartcity-network
+    depends_on:
+      - api-gateway
+    restart: unless-stopped

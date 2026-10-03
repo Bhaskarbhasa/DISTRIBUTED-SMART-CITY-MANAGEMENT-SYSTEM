@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: smart-city
+data:
+  KAFKA_BROKERS: "kafka:9092"
+  REDIS_URL: "redis://redis:6379"
+  POSTGRES_HOST: "postgres"

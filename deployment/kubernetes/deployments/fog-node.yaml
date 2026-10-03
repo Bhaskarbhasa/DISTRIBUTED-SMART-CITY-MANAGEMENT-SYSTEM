@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fog-node
+  namespace: smart-city
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: fog-node
+  template:
+    metadata:
+      labels:
+        app: fog-node
+    spec:
+      containers:
+      - name: fog-node
+        image: fog-node:latest
+        env:
+        - name: NODE_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name

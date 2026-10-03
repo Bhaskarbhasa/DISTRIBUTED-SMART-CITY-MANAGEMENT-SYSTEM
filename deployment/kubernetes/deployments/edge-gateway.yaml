@@ -1,0 +1,18 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: edge-gateway
+  namespace: smart-city
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: edge-gateway
+  template:
+    metadata:
+      labels:
+        app: edge-gateway
+    spec:
+      containers:
+      - name: edge-gateway
+        image: edge-gateway:latest

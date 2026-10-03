@@ -1,0 +1,54 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - "alerts.yml"
+
+scrape_configs:
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: "api-gateway"
+    static_configs:
+      - targets: ["api-gateway:8000"]
+
+  - job_name: "auth-service"
+    static_configs:
+      - targets: ["auth-service:8001"]
+
+  - job_name: "ingestion-service"
+    static_configs:
+      - targets: ["ingestion-service:8002"]
+
+  - job_name: "traffic-service"
+    static_configs:
+      - targets: ["traffic-service:8003"]
+
+  - job_name: "emergency-service"
+    static_configs:
+      - targets: ["emergency-service:8004"]
+
+  - job_name: "environment-service"
+    static_configs:
+      - targets: ["environment-service:8005"]
+
+  - job_name: "analytics-service"
+    static_configs:
+      - targets: ["analytics-service:8006"]
+
+  - job_name: "notification-service"
+    static_configs:
+      - targets: ["notification-service:8007"]
+
+  - job_name: "fog-nodes"
+    static_configs:
+      - targets: 
+        - "fog-node-1:5001"
+        - "fog-node-2:5002"
+        - "fog-node-3:5003"
+
+  - job_name: "edge-gateway"
+    static_configs:
+      - targets: ["edge-gateway:8080"]

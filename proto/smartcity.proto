@@ -1,0 +1,57 @@
+syntax = "proto3";
+package smartcity;
+
+service FogCoordinator {
+  rpc GetTrafficDecision(TrafficDecisionRequest) returns (TrafficDecisionResponse);
+  rpc GetNodeStatus(NodeStatusRequest) returns (NodeStatusResponse);
+  rpc SubmitCommand(CommandRequest) returns (CommandResponse);
+}
+
+message TrafficDecisionRequest {
+  string zone_id = 1;
+  string congestion_level = 2;
+  int32 vehicle_count = 3;
+  float average_speed = 4;
+  bool emergency_override = 5;
+}
+
+message TrafficDecisionResponse {
+  string decision_id = 1;
+  string zone_id = 2;
+  string signal_state = 3;
+  int32 green_duration = 4;
+  int32 yellow_duration = 5;
+  int32 red_duration = 6;
+  string leader_id = 7;
+  string timestamp = 8;
+  bool replicated = 9;
+}
+
+message NodeStatusRequest {
+  string node_id = 1;
+}
+
+message NodeStatusResponse {
+  string node_id = 1;
+  string state = 2;
+  int32 term = 3;
+  string leader_id = 4;
+  int64 commit_index = 5;
+  int64 log_length = 6;
+  float cpu_percent = 7;
+  float memory_mb = 8;
+  bool is_healthy = 9;
+}
+
+message CommandRequest {
+  string command_type = 1;
+  string payload_json = 2;
+  string client_id = 3;
+}
+
+message CommandResponse {
+  bool success = 1;
+  string result_json = 2;
+  string error = 3;
+  int64 log_index = 4;
+}

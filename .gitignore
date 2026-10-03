@@ -1,0 +1,77 @@
+# ==========================================
+# Distributed Smart City Management System
+# .gitignore
+# ==========================================
+
+# Environment files (NEVER commit!)
+.env
+.env.local
+.env.*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+*.pyc
+.pytest_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+env/
+
+# Node.js / Frontend
+node_modules/
+frontend/dist/
+frontend/.env
+*.tsbuildinfo
+
+# SQLite databases (fog node local state - runtime data)
+*.db
+*.sqlite
+*.sqlite3
+data/raft_*/
+
+# Docker volumes (local dev data)
+data/
+
+# Logs
+logs/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Generated protobuf files
+*_pb2.py
+*_pb2_grpc.py
+
+# Test artifacts
+.coverage
+htmlcov/
+junit.xml
+test-results/
+
+# Secrets & Certs (NEVER commit!)
+*.pem
+*.key
+*.crt
+*.p12
+certs/
+
+# Temporary
+tmp/
+temp/
+*.tmp
