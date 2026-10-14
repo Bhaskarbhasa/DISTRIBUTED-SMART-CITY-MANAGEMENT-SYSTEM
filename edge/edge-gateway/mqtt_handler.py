@@ -23,10 +23,17 @@ class MQTTGateway:
         if settings.MQTT_USERNAME and settings.MQTT_PASSWORD:
             self.client.username_pw_set(settings.MQTT_USERNAME, settings.MQTT_PASSWORD)
             
+        self.loop = None
         self.client.on_connect = self.on_connect
         self.client.on_message = self.on_message
         
     def start(self):
+        try:
+            self.loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self.loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self.loop)
+            
         logger.info("connecting_to_mqtt", broker=settings.MQTT_BROKER, port=settings.MQTT_PORT)
         try:
             self.client.connect(settings.MQTT_BROKER, settings.MQTT_PORT, 60)
@@ -56,7 +63,8 @@ class MQTTGateway:
             if not sensor_id or (sensor_id not in REGISTERED_DEVICES and not sensor_id.startswith("TRAFFIC-") and not sensor_id.startswith("ENV-") and not sensor_id.startswith("CAM-") and not sensor_id.startswith("EMERGENCY-")):
                 logger.warning("unknown_device_rejected", sensor_id=sensor_id)
                 
-            asyncio.run_coroutine_threadsafe(self.process_message(msg.topic, payload), asyncio.get_event_loop())
+            if self.loop and self.loop.is_running():
+                asyncio.run_coroutine_threadsafe(self.process_message(msg.topic, payload), self.loop)
         except Exception as e:
             logger.error("mqtt_message_processing_failed", error=str(e), topic=msg.topic)
             

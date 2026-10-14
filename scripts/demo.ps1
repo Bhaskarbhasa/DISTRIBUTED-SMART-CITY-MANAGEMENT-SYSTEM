@@ -67,7 +67,7 @@ try {
 # ============================================================
 Write-DemoStep 2 "Open Dashboard"
 Write-Host "  Dashboard URL: http://localhost:3001" -ForegroundColor Green
-Write-Host "  Login with: admin@smartcity.local / Admin@123" -ForegroundColor White
+Write-Host "  Login with: admin@smartcity.com / Admin@123" -ForegroundColor White
 Pause-Demo 3 "Logging into system..."
 
 $token = Get-AuthToken

@@ -11,8 +11,8 @@ import threading
 
 logger = structlog.get_logger()
 
-MQTT_BROKER = os.getenv("MQTT_BROKER", "localhost")
-MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
+MQTT_BROKER = os.getenv("MQTT_BROKER") or os.getenv("MQTT_BROKER_HOST") or "mosquitto"
+MQTT_PORT = int(os.getenv("MQTT_PORT") or os.getenv("MQTT_BROKER_PORT") or "1883")
 MQTT_USERNAME = os.getenv("MQTT_USERNAME", "admin")
 MQTT_PASSWORD = os.getenv("MQTT_PASSWORD", "admin")
 
