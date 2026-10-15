@@ -29,9 +29,15 @@ function Pause-Demo($seconds, $msg) {
 
 function Get-AuthToken {
     $loginBody = @{ email = "admin@smartcity.com"; password = "Admin@123" } | ConvertTo-Json
-    $response = Invoke-RestMethod -Uri "$API/api/auth/login" -Method Post -Body $loginBody -ContentType "application/json" -ErrorAction SilentlyContinue
-    if ($response.access_token) {
-        return $response.access_token
+    for ($i = 1; $i -le 5; $i++) {
+        try {
+            $response = Invoke-RestMethod -Uri "$API/api/auth/login" -Method Post -Body $loginBody -ContentType "application/json" -ErrorAction Stop
+            if ($response.access_token) {
+                return $response.access_token
+            }
+        } catch {
+            Start-Sleep -Seconds 2
+        }
     }
     Write-Host "  WARNING: Could not get auth token. API may not be ready." -ForegroundColor Yellow
     return ""

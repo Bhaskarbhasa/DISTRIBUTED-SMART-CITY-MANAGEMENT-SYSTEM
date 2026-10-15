@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 from typing import Optional, Any
@@ -14,19 +15,25 @@ producer: Optional[AIOKafkaProducer] = None
 async def init_kafka():
     global producer
     try:
-        producer = AIOKafkaProducer(
+        p = AIOKafkaProducer(
             bootstrap_servers=settings.KAFKA_BROKERS,
             value_serializer=lambda v: json.dumps(v).encode('utf-8')
         )
-        await producer.start()
+        await p.start()
+        producer = p
         logger.info("Kafka producer started.")
     except Exception as e:
+        producer = None
         logger.error(f"Failed to start Kafka producer: {e}")
 
 async def close_kafka():
     global producer
     if producer:
-        await producer.stop()
+        try:
+            await producer.stop()
+        except Exception:
+            pass
+        producer = None
 
 async def log_audit_event(
     db: AsyncSession,
@@ -50,7 +57,7 @@ async def log_audit_event(
     await db.commit()
     await db.refresh(audit_entry)
 
-    # Publish to Kafka
+    # Publish to Kafka non-blockingly so auth never hangs on Kafka
     if producer:
         event = {
             "id": audit_entry.id,
@@ -62,7 +69,13 @@ async def log_audit_event(
             "result": result,
             "timestamp": audit_entry.timestamp.isoformat()
         }
+        async def _safe_send():
+            try:
+                await asyncio.wait_for(producer.send_and_wait("audit.events", event), timeout=2.0)
+            except Exception as e:
+                logger.error(f"Failed to publish audit event to Kafka: {e}")
         try:
-            await producer.send_and_wait("audit.events", event)
+            asyncio.create_task(_safe_send())
         except Exception as e:
-            logger.error(f"Failed to publish audit event to Kafka: {e}")
+            logger.error(f"Could not schedule audit event: {e}")
+
